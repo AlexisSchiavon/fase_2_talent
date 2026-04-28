@@ -4,9 +4,9 @@ from pydantic import BaseModel
 
 
 class PipedriveWebhookPayload(BaseModel):
-    event: str
+    event: Optional[str] = None  # v1 only
     data: dict
-    meta: Optional[dict] = None
+    meta: Optional[dict] = None  # v2 only
 
 
 class DealData(BaseModel):
