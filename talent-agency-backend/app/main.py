@@ -36,3 +36,8 @@ async def root() -> dict:
         "service": "talent-agency-automation",
         "version": "1.0.0",
     }
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
