@@ -221,3 +221,42 @@ class PipedriveClient:
         except Exception as exc:
             logger.error("Error adding note to deal %s: %s", deal_id, exc)
             return False
+
+    async def get_person_deals_count(self, person_id: int) -> int:
+        logger.debug("Fetching deals count for person %s", person_id)
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.base_url}/persons/{person_id}/deals",
+                    params={"api_token": self.api_token, "limit": 1},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                pagination = (payload.get("additional_data") or {}).get("pagination") or {}
+                total = pagination.get("total_count")
+                if total is not None:
+                    return int(total)
+                return len(payload.get("data") or [])
+        except Exception as exc:
+            logger.error("Error fetching deals count for person %s: %s", person_id, exc)
+            return 0
+
+    async def merge_persons(self, primary_id: int, secondary_id: int) -> Optional[dict]:
+        """Merge secondary_id into primary_id. primary_id survives, secondary_id disappears."""
+        logger.info(
+            "Merging person %s (disappears) into %s (survives)", secondary_id, primary_id
+        )
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.put(
+                    f"{self.base_url}/persons/{secondary_id}/merge",
+                    params={"api_token": self.api_token},
+                    json={"merge_with_id": primary_id},
+                )
+                response.raise_for_status()
+                return response.json().get("data")
+        except Exception as exc:
+            logger.error(
+                "Error merging person %s into %s: %s", secondary_id, primary_id, exc
+            )
+            return None

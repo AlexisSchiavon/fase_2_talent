@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import date
 from typing import Optional
 
 from app.models.schemas import EnrichmentResult
@@ -29,6 +30,53 @@ def _person_has_valid_phone(person: dict) -> Optional[str]:
         if len(digits) >= 10:
             return raw
     return None
+
+
+async def _pick_primary(client: PipedriveClient, ids: list) -> tuple:
+    """Return (primary_id, secondaries) — most deals wins, lowest ID breaks ties."""
+    counts: dict = {}
+    for pid in ids:
+        counts[pid] = await client.get_person_deals_count(pid)
+    sorted_ids = sorted(ids, key=lambda pid: (-counts[pid], pid))
+    return sorted_ids[0], sorted_ids[1:]
+
+
+async def _handle_duplicate_merge(
+    client: PipedriveClient, deal_id: int, ids: list, date_str: str
+) -> set:
+    """Merge duplicate persons into one; return set of secondary IDs successfully merged."""
+    valid_ids = [pid for pid in ids if pid is not None]
+    if len(valid_ids) < 2:
+        return set()
+    primary_id, secondaries = await _pick_primary(client, valid_ids)
+    logger.info(
+        "Deal %s: merge plan — primary=%s secondaries=%s", deal_id, primary_id, secondaries
+    )
+    merged: set = set()
+    for secondary_id in secondaries:
+        merge_result = await client.merge_persons(primary_id, secondary_id)
+        if merge_result:
+            logger.info("Deal %s: merged person %s → %s", deal_id, secondary_id, primary_id)
+            merged.add(secondary_id)
+            await client.add_deal_note(
+                deal_id,
+                (
+                    f"✅ Duplicados fusionados automáticamente.\n"
+                    f"Person {secondary_id} absorbido por {primary_id} — {date_str}"
+                ),
+            )
+        else:
+            logger.error(
+                "Deal %s: merge failed — person %s into %s", deal_id, secondary_id, primary_id
+            )
+            await client.add_deal_note(
+                deal_id,
+                (
+                    f"⚠️ DUPLICADO DETECTADO — fusión automática falló.\n"
+                    f"Revisar manualmente: Person {primary_id} y Person {secondary_id}"
+                ),
+            )
+    return merged
 
 
 async def enrich_deal(deal_id: int) -> EnrichmentResult:
@@ -113,8 +161,11 @@ async def enrich_deal(deal_id: int) -> EnrichmentResult:
                 result.phone_value = formatted
                 break
 
-    # --- Paso 4: Detectar duplicados ---
+    # --- Paso 4: Detectar y fusionar duplicados ---
     if person:
+        today = date.today().isoformat()
+        already_merged: set = set()
+
         # Check by email
         emails = person.get("email") or []
         primary_email: Optional[str] = next(
@@ -128,16 +179,10 @@ async def enrich_deal(deal_id: int) -> EnrichmentResult:
                 result.duplicates_found.append(
                     {"field": "email", "value": primary_email, "ids": ids}
                 )
-                await client.add_deal_note(
-                    deal_id,
-                    (
-                        f"⚠️ DUPLICADO DETECTADO\n"
-                        f"Se encontraron {len(email_matches)} contactos con el mismo email.\n"
-                        f"IDs encontrados: {ids}\n"
-                        "Revisión manual requerida."
-                    ),
-                )
                 logger.warning("Deal %s: duplicate by email — IDs %s", deal_id, ids)
+                already_merged.update(
+                    await _handle_duplicate_merge(client, deal_id, ids, today)
+                )
 
         # Check by phone
         phone_to_check = result.phone_value
@@ -148,16 +193,10 @@ async def enrich_deal(deal_id: int) -> EnrichmentResult:
                 result.duplicates_found.append(
                     {"field": "phone", "value": phone_to_check, "ids": ids}
                 )
-                await client.add_deal_note(
-                    deal_id,
-                    (
-                        f"⚠️ DUPLICADO DETECTADO\n"
-                        f"Se encontraron {len(phone_matches)} contactos con el mismo teléfono.\n"
-                        f"IDs encontrados: {ids}\n"
-                        "Revisión manual requerida."
-                    ),
-                )
                 logger.warning("Deal %s: duplicate by phone — IDs %s", deal_id, ids)
+                unprocessed = [pid for pid in ids if pid not in already_merged]
+                if len(unprocessed) > 1:
+                    await _handle_duplicate_merge(client, deal_id, unprocessed, today)
 
     # --- Paso 5: Éxito ---
     result.success = True
