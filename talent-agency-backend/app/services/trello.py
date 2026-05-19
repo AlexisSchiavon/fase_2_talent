@@ -62,8 +62,39 @@ class TrelloClient:
             logger.error("Error fetching lists for board %s: %s", board_id, exc)
             return []
 
+    async def find_or_create_list(self, board_id: str, list_name: str) -> Optional[str]:
+        """Return list_id for list_name in board; create it at the bottom if it doesn't exist."""
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.base_url}/boards/{board_id}/lists",
+                    params={**self._auth_params(), "filter": "open", "fields": "name,id"},
+                )
+                response.raise_for_status()
+                lists = response.json()
+
+            name_lower = list_name.lower()
+            for lst in lists:
+                if lst.get("name", "").lower() == name_lower:
+                    return lst["id"]
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/lists",
+                    params=self._auth_params(),
+                    json={"name": list_name, "idBoard": board_id, "pos": "bottom"},
+                )
+                response.raise_for_status()
+                logger.info("Created list '%s' in board %s", list_name, board_id)
+                return response.json()["id"]
+        except Exception as exc:
+            logger.error(
+                "Error finding/creating list '%s' in board %s: %s", list_name, board_id, exc
+            )
+            return None
+
     async def create_card(
-        self, list_id: str, name: str, description: str = ""
+        self, list_id: str, name: str, description: str = "", pos: str = "top"
     ) -> Optional[dict]:
         logger.debug("Creating Trello card '%s' in list %s", name, list_id)
         try:
@@ -71,7 +102,7 @@ class TrelloClient:
                 response = await client.post(
                     f"{self.base_url}/cards",
                     params=self._auth_params(),
-                    json={"idList": list_id, "name": name, "desc": description},
+                    json={"idList": list_id, "name": name, "desc": description, "pos": pos},
                 )
                 response.raise_for_status()
                 return response.json()

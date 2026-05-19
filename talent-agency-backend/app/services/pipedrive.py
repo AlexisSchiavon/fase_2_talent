@@ -49,10 +49,20 @@ class PipedriveClient:
                 payload = response.json()
                 deal_data = payload.get("data")
                 if deal_data:
-                    # Pipedrive sometimes returns person_id as {"value": 123}
+                    # Normalize person_id and preserve person_name
                     raw = deal_data.get("person_id")
                     if isinstance(raw, dict):
+                        deal_data["person_name"] = raw.get("name")
                         deal_data["person_id"] = raw.get("value")
+                    # Normalize org_id and preserve org_name
+                    raw_org = deal_data.get("org_id")
+                    if isinstance(raw_org, dict):
+                        deal_data["org_name"] = raw_org.get("name")
+                        deal_data["org_id"] = raw_org.get("value")
+                    # Preserve owner name from user_id
+                    raw_owner = deal_data.get("user_id")
+                    if isinstance(raw_owner, dict):
+                        deal_data["owner_name"] = raw_owner.get("name")
                 return deal_data
         except Exception as exc:
             logger.error("Error fetching deal %s: %s", deal_id, exc)
