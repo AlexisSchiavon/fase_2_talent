@@ -98,6 +98,32 @@ class PipedriveClient:
             logger.error("Error fetching notes for deal %s: %s", deal_id, exc)
             return []
 
+    async def get_latest_structured_note(self, deal_id: int) -> Optional[str]:
+        """Return the most recent note that looks like the campaign template (contains 'Key: value' lines), or None."""
+        logger.debug("Fetching latest structured note for deal %s", deal_id)
+        import re
+        _structured_line = re.compile(r"^\s*\w[\w\s]*:\s+\S", re.MULTILINE)
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.base_url}/notes",
+                    params={
+                        "api_token": self.api_token,
+                        "deal_id": deal_id,
+                        "sort": "add_time DESC",
+                    },
+                )
+                response.raise_for_status()
+                notes: List[dict] = response.json().get("data") or []
+            for note in notes:
+                content: str = note.get("content") or ""
+                if _structured_line.search(content):
+                    return content.strip()
+            return None
+        except Exception as exc:
+            logger.error("Error fetching structured note for deal %s: %s", deal_id, exc)
+            return None
+
     async def get_person(self, person_id: int) -> Optional[dict]:
         logger.debug("Fetching person %s from Pipedrive", person_id)
         try:

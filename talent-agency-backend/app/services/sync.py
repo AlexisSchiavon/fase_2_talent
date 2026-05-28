@@ -72,16 +72,22 @@ def _build_card_description(
     talent_label: Optional[str],
     owner_name: Optional[str],
     value: Optional[float],
+    campaign_note: Optional[str] = None,
 ) -> str:
-    lines = [
+    deal_section = "\n".join([
+        "--- Datos del deal ---",
         f"Cliente: {person_name or 'N/A'}",
         f"Empresa: {org_name or 'N/A'}",
         f"Talento: {talent_label or 'N/A'}",
         f"Ejecutiva: {owner_name or 'N/A'}",
         f"Valor: {int(value or 0)} MXN",
         f"Pipedrive Deal ID: {deal_id}",
-    ]
-    return "\n".join(lines)
+    ])
+    campaign_body = campaign_note if campaign_note else (
+        "⚠️ Sin nota de campaña — el equipo debe llenar la plantilla en Pipedrive"
+    )
+    campaign_section = "--- Detalle de campaña ---\n" + campaign_body
+    return f"{deal_section}\n\n{campaign_section}"
 
 
 async def sync_deal_to_trello(deal_id: int) -> SyncResult:
@@ -111,12 +117,19 @@ async def sync_deal_to_trello(deal_id: int) -> SyncResult:
     ]
     talent_label: Optional[str] = ", ".join(talent_names) if talent_names else None
 
+    # --- 3. Fetch campaign note ---
+    campaign_note: Optional[str] = None
+    try:
+        campaign_note = await pipedrive.get_latest_structured_note(deal_id)
+    except Exception as exc:
+        logger.warning("Deal %s: could not fetch structured note, continuing without it: %s", deal_id, exc)
+
     card_name = _build_card_name(deal_title, org_name)
     card_desc = _build_card_description(
-        deal_id, person_name, org_name, talent_label, owner_name, value
+        deal_id, person_name, org_name, talent_label, owner_name, value, campaign_note
     )
 
-    # --- 3. Fetch all Trello boards once ---
+    # --- 4. Fetch all Trello boards once ---
     all_boards = await trello.get_boards_in_workspace()
     if not all_boards:
         logger.error("No Trello boards accessible, aborting sync for deal %s", deal_id)
@@ -125,7 +138,7 @@ async def sync_deal_to_trello(deal_id: int) -> SyncResult:
 
     card_links: List[str] = []
 
-    # --- 4. Card on Admin TA — checklist Seguimiento ---
+    # --- 5. Card on Admin TA — checklist Seguimiento ---
     admin_board = trello.find_board_by_name(BOARD_ADMIN_TA, all_boards)
     if admin_board:
         try:
@@ -150,7 +163,7 @@ async def sync_deal_to_trello(deal_id: int) -> SyncResult:
         logger.warning("Deal %s: board '%s' not found", deal_id, BOARD_ADMIN_TA)
         result.errors.append(f"Board '{BOARD_ADMIN_TA}' not found")
 
-    # --- 5. Card on TA Campañas — checklist Producción ---
+    # --- 6. Card on TA Campañas — checklist Producción ---
     campanas_board = trello.find_board_by_name(BOARD_TA_CAMPANAS, all_boards)
     if campanas_board:
         try:
@@ -175,7 +188,7 @@ async def sync_deal_to_trello(deal_id: int) -> SyncResult:
         logger.warning("Deal %s: board '%s' not found", deal_id, BOARD_TA_CAMPANAS)
         result.errors.append(f"Board '{BOARD_TA_CAMPANAS}' not found")
 
-    # --- 6. Card on each talent's individual board (no checklist) ---
+    # --- 7. Card on each talent's individual board (no checklist) ---
     for talent_name in talent_names:
         keyword = _board_keyword_for_talent(talent_name)
         talent_board = _find_board_by_keyword(keyword, all_boards)
@@ -212,7 +225,7 @@ async def sync_deal_to_trello(deal_id: int) -> SyncResult:
             )
             result.errors.append(f"Talent card failed for {talent_name}: {exc}")
 
-    # --- 7. Add Pipedrive note with all card URLs ---
+    # --- 8. Add Pipedrive note with all card URLs ---
     if card_links:
         note = "🟢 Tarjetas Trello creadas:\n" + "\n".join(card_links)
         try:
