@@ -188,42 +188,42 @@ async def sync_deal_to_trello(deal_id: int) -> SyncResult:
         logger.warning("Deal %s: board '%s' not found", deal_id, BOARD_TA_CAMPANAS)
         result.errors.append(f"Board '{BOARD_TA_CAMPANAS}' not found")
 
-    # --- 7. Card on each talent's individual board (no checklist) ---
-    for talent_name in talent_names:
-        keyword = _board_keyword_for_talent(talent_name)
-        talent_board = _find_board_by_keyword(keyword, all_boards)
-        if not talent_board:
-            logger.warning(
-                "Deal %s: tablero no encontrado para talento: %s", deal_id, talent_name
-            )
-            result.errors.append(f"No board found for talent: {talent_name}")
-            continue
-        try:
-            list_id = await trello.find_or_create_list(talent_board["id"], LIST_EN_CURSO)
-            if list_id:
-                card = await trello.create_card(
-                    list_id=list_id, name=card_name, description=card_desc
-                )
-                if card:
-                    result.cards_created.append(
-                        {
-                            "board": talent_board["name"],
-                            "list": LIST_EN_CURSO,
-                            "card": card_name,
-                        }
-                    )
-                    card_links.append(f"• {talent_name}: {card['url']}")
-                    logger.info(
-                        "Deal %s: created card on board '%s'", deal_id, talent_board["name"]
-                    )
-        except Exception as exc:
-            logger.error(
-                "Deal %s: failed to create card for talent '%s': %s",
-                deal_id,
-                talent_name,
-                exc,
-            )
-            result.errors.append(f"Talent card failed for {talent_name}: {exc}")
+    # --- 7. Card on each talent's individual board (no checklist) — DISABLED ---
+    # for talent_name in talent_names:
+    #     keyword = _board_keyword_for_talent(talent_name)
+    #     talent_board = _find_board_by_keyword(keyword, all_boards)
+    #     if not talent_board:
+    #         logger.warning(
+    #             "Deal %s: tablero no encontrado para talento: %s", deal_id, talent_name
+    #         )
+    #         result.errors.append(f"No board found for talent: {talent_name}")
+    #         continue
+    #     try:
+    #         list_id = await trello.find_or_create_list(talent_board["id"], LIST_EN_CURSO)
+    #         if list_id:
+    #             card = await trello.create_card(
+    #                 list_id=list_id, name=card_name, description=card_desc
+    #             )
+    #             if card:
+    #                 result.cards_created.append(
+    #                     {
+    #                         "board": talent_board["name"],
+    #                         "list": LIST_EN_CURSO,
+    #                         "card": card_name,
+    #                     }
+    #                 )
+    #                 card_links.append(f"• {talent_name}: {card['url']}")
+    #                 logger.info(
+    #                     "Deal %s: created card on board '%s'", deal_id, talent_board["name"]
+    #                 )
+    #     except Exception as exc:
+    #         logger.error(
+    #             "Deal %s: failed to create card for talent '%s': %s",
+    #             deal_id,
+    #             talent_name,
+    #             exc,
+    #         )
+    #         result.errors.append(f"Talent card failed for {talent_name}: {exc}")
 
     # --- 8. Add Pipedrive note with all card URLs ---
     if card_links:
