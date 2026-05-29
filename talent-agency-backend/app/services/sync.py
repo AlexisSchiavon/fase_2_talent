@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import List, Optional
 
 from app.models.schemas import SyncResult
@@ -10,6 +11,7 @@ logger = logging.getLogger(__name__)
 BOARD_ADMIN_TA = "Admin TA"
 BOARD_TA_CAMPANAS = "TA Campañas"
 LIST_EN_CURSO = "En curso"
+LIST_CONTRATO = "Contrato"
 
 CHECKLIST_SEGUIMIENTO: List[str] = [
     "Pedir info cliente",
@@ -83,9 +85,11 @@ def _build_card_description(
         f"Valor: {int(value or 0)} MXN",
         f"Pipedrive Deal ID: {deal_id}",
     ])
-    campaign_body = campaign_note if campaign_note else (
-        "⚠️ Sin nota de campaña — el equipo debe llenar la plantilla en Pipedrive"
-    )
+    if campaign_note:
+        campaign_body = re.sub(r"<br\s*/?>", "\n", campaign_note).strip()
+    else:
+        campaign_body = "⚠️ Sin nota de campaña — el equipo debe llenar la plantilla en Pipedrive"
+
     campaign_section = "--- Detalle de campaña ---\n" + campaign_body
     return f"{deal_section}\n\n{campaign_section}"
 
@@ -131,6 +135,7 @@ async def sync_deal_to_trello(deal_id: int) -> SyncResult:
 
     # --- 4. Fetch all Trello boards once ---
     all_boards = await trello.get_boards_in_workspace()
+    logger.info("DEBUG boards disponibles: %s", [b.get("name") for b in (all_boards or [])])
     if not all_boards:
         logger.error("No Trello boards accessible, aborting sync for deal %s", deal_id)
         result.errors.append("No Trello boards accessible")
@@ -142,7 +147,7 @@ async def sync_deal_to_trello(deal_id: int) -> SyncResult:
     admin_board = trello.find_board_by_name(BOARD_ADMIN_TA, all_boards)
     if admin_board:
         try:
-            list_id = await trello.find_or_create_list(admin_board["id"], LIST_EN_CURSO)
+            list_id = await trello.find_or_create_list(admin_board["id"], LIST_CONTRATO)
             if list_id:
                 card = await trello.create_card(
                     list_id=list_id, name=card_name, description=card_desc
@@ -152,7 +157,7 @@ async def sync_deal_to_trello(deal_id: int) -> SyncResult:
                         card["id"], "Seguimiento", CHECKLIST_SEGUIMIENTO
                     )
                     result.cards_created.append(
-                        {"board": BOARD_ADMIN_TA, "list": LIST_EN_CURSO, "card": card_name}
+                        {"board": BOARD_ADMIN_TA, "list": LIST_CONTRATO, "card": card_name}
                     )
                     card_links.append(f"• Admin TA: {card['url']}")
                     logger.info("Deal %s: created Admin TA card", deal_id)
