@@ -18,12 +18,13 @@ class TrelloClient:
         return {"key": self.key, "token": self.token}
 
     async def get_boards_in_workspace(self) -> List[dict]:
-        logger.debug("Fetching boards for authenticated Trello member")
+        org_id = settings.TRELLO_ORG_ID
+        logger.debug("Fetching boards for org %s", org_id)
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    f"{self.base_url}/members/me/boards",
-                    params=self._auth_params(),
+                    f"{self.base_url}/organizations/{org_id}/boards",
+                    params={**self._auth_params(), "fields": "name,id"},
                 )
                 response.raise_for_status()
                 return response.json()

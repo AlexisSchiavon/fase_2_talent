@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     TRELLO_API_KEY: str
     TRELLO_TOKEN: str
     TRELLO_WORKSPACE_NAME: str = "Talent Agency"
+    TRELLO_ORG_ID: str = ""
 
     ANTHROPIC_API_KEY: str
 
